@@ -47,11 +47,11 @@ class Predeblur_ResNet_Pyramid(nn.Module):
             L1_fea = self.lrelu(self.conv_first(x))
         L2_fea = self.lrelu(self.deblur_L2_conv(L1_fea))
         L3_fea = self.lrelu(self.deblur_L3_conv(L2_fea))
-        L3_fea = F.interpolate(
-            self.RB_L3_1(L3_fea), scale_factor=2, mode='bilinear', align_corners=False)
+        L3_fea = F.interpolate(self.RB_L3_1(L3_fea), scale_factor=2, mode='bilinear',
+                               align_corners=False)
         L2_fea = self.RB_L2_1(L2_fea) + L3_fea
-        L2_fea = F.interpolate(
-            self.RB_L2_2(L2_fea), scale_factor=2, mode='bilinear', align_corners=False)
+        L2_fea = F.interpolate(self.RB_L2_2(L2_fea), scale_factor=2, mode='bilinear',
+                               align_corners=False)
         L1_fea = self.RB_L1_2(self.RB_L1_1(L1_fea)) + L2_fea
         out = self.RB_L1_5(self.RB_L1_4(self.RB_L1_3(L1_fea)))
         return out
@@ -67,28 +67,28 @@ class PCD_Align(nn.Module):
         # L3: level 3, 1/4 spatial size
         self.L3_offset_conv1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)  # concat for diff
         self.L3_offset_conv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.L3_dcnpack = DCN_sep(
-            nf, nf, 3, stride=1, padding=1, dilation=1, deformable_groups=groups)
+        self.L3_dcnpack = DCN_sep(nf, nf, 3, stride=1, padding=1, dilation=1,
+                                  deformable_groups=groups)
         # L2: level 2, 1/2 spatial size
         self.L2_offset_conv1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)  # concat for diff
         self.L2_offset_conv2 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)  # concat for offset
         self.L2_offset_conv3 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.L2_dcnpack = DCN_sep(
-            nf, nf, 3, stride=1, padding=1, dilation=1, deformable_groups=groups)
+        self.L2_dcnpack = DCN_sep(nf, nf, 3, stride=1, padding=1, dilation=1,
+                                  deformable_groups=groups)
         self.L2_fea_conv = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)  # concat for fea
         # L1: level 1, original spatial size
         self.L1_offset_conv1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)  # concat for diff
         self.L1_offset_conv2 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)  # concat for offset
         self.L1_offset_conv3 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.L1_dcnpack = DCN_sep(
-            nf, nf, 3, stride=1, padding=1, dilation=1, deformable_groups=groups)
+        self.L1_dcnpack = DCN_sep(nf, nf, 3, stride=1, padding=1, dilation=1,
+                                  deformable_groups=groups)
         self.L1_fea_conv = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)  # concat for fea
         # Cascading DCN
         self.cas_offset_conv1 = nn.Conv2d(nf * 2, nf, 3, 1, 1, bias=True)  # concat for diff
         self.cas_offset_conv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
 
-        self.cas_dcnpack = DCN_sep(
-            nf, nf, 3, stride=1, padding=1, dilation=1, deformable_groups=groups)
+        self.cas_dcnpack = DCN_sep(nf, nf, 3, stride=1, padding=1, dilation=1,
+                                   deformable_groups=groups)
 
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
 
@@ -204,20 +204,14 @@ class TSA_Fusion(nn.Module):
 
 
 class EDVR(nn.Module):
-    def __init__(self,
-                 nf=64,
-                 nframes=5,
-                 groups=8,
-                 front_RBs=5,
-                 back_RBs=10,
-                 center=None,
-                 predeblur=False,
-                 HR_in=False):
+    def __init__(self, nf=64, nframes=5, groups=8, front_RBs=5, back_RBs=10, center=None,
+                 predeblur=False, HR_in=False, w_TSA=True):
         super(EDVR, self).__init__()
         self.nf = nf
         self.center = nframes // 2 if center is None else center
         self.is_predeblur = True if predeblur else False
         self.HR_in = True if HR_in else False
+        self.w_TSA = w_TSA
         ResidualBlock_noBN_f = functools.partial(mutil.ResidualBlock_noBN, nf=nf)
 
         #### extract features (for each frame)
@@ -238,7 +232,10 @@ class EDVR(nn.Module):
         self.fea_L3_conv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
 
         self.pcd_align = PCD_Align(nf=nf, groups=groups)
-        self.tsa_fusion = TSA_Fusion(nf=nf, nframes=nframes, center=self.center)
+        if self.w_TSA:
+            self.tsa_fusion = TSA_Fusion(nf=nf, nframes=nframes, center=self.center)
+        else:
+            self.tsa_fusion = nn.Conv2d(nframes * nf, nf, 1, 1, bias=True)
 
         #### reconstruction
         self.recon_trunk = mutil.make_layer(ResidualBlock_noBN_f, back_RBs)
@@ -298,6 +295,8 @@ class EDVR(nn.Module):
             aligned_fea.append(self.pcd_align(nbr_fea_l, ref_fea_l))
         aligned_fea = torch.stack(aligned_fea, dim=1)  # [B, N, C, H, W]
 
+        if not self.w_TSA:
+            aligned_fea = aligned_fea.view(B, -1, H, W)
         fea = self.tsa_fusion(aligned_fea)
 
         out = self.recon_trunk(fea)
